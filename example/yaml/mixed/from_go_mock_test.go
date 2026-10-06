@@ -69,6 +69,7 @@ type mockFromGoDo struct {
 	calls        []MockFromGoDoParams
 	runFn        func() error
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockFromGo) DoCalls() []MockFromGoDoParams {
@@ -187,6 +188,24 @@ func (_m *MockFromGo) RunDo(fn func() error) *MockFromGo {
 	return _m
 }
 
+func (_m *MockFromGo) NeverDo() *MockFromGo {
+	if _m == nil || _m.do == nil {
+		panic("neomock: MockFromGo used without Tester; create via NewMockFromGo(t)")
+	}
+	_g := _m.do
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverDo at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockFromGoDoExpectation) match() bool {
 	return true
 }
@@ -209,25 +228,31 @@ func (_g *mockFromGoDo) call() error {
 	_g.calls = append(_g.calls, MockFromGoDoParams{})
 	var _served *mockFromGoDoExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match() {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match() {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -236,7 +261,11 @@ func (_g *mockFromGoDo) call() error {
 		_g.mu.Unlock()
 		return _res.v1
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockFromGo.Do(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{}, []any{}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverDo()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockFromGo.Do(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{}, []any{}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockFromGo.Do WhenDo registered at %s has no Then", _noThen)
 	case _g.runFn != nil:

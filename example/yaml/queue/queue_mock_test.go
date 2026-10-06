@@ -76,6 +76,7 @@ type mockQueuePop struct {
 	calls        []MockQueuePopParams
 	runFn        func(ctx context.Context) (string, error)
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockQueue) PopCalls() []MockQueuePopParams {
@@ -195,6 +196,24 @@ func (_m *MockQueue) RunPop(fn func(ctx context.Context) (string, error)) *MockQ
 	return _m
 }
 
+func (_m *MockQueue) NeverPop() *MockQueue {
+	if _m == nil || _m.pop == nil {
+		panic("neomock: MockQueue used without Tester; create via NewMockQueue(t)")
+	}
+	_g := _m.pop
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverPop at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockQueuePopExpectation) match(ctx context.Context) bool {
 	if !neomock.Equal(_e.ctx, ctx) {
 		return false
@@ -227,25 +246,31 @@ func (_g *mockQueuePop) call(ctx context.Context) (string, error) {
 	_g.calls = append(_g.calls, MockQueuePopParams{Ctx: ctx})
 	var _served *mockQueuePopExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match(ctx) {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match(ctx) {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -254,7 +279,11 @@ func (_g *mockQueuePop) call(ctx context.Context) (string, error) {
 		_g.mu.Unlock()
 		return _res.v1, _res.v2
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockQueue.Pop(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{"ctx"}, []any{ctx}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverPop()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockQueue.Pop(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{"ctx"}, []any{ctx}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockQueue.Pop WhenPop registered at %s has no Then", _noThen)
 	case _g.runFn != nil:
@@ -347,6 +376,7 @@ type mockQueuePush struct {
 	calls        []MockQueuePushParams
 	runFn        func(ctx context.Context, msg string) error
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockQueue) PushCalls() []MockQueuePushParams {
@@ -467,6 +497,24 @@ func (_m *MockQueue) RunPush(fn func(ctx context.Context, msg string) error) *Mo
 	return _m
 }
 
+func (_m *MockQueue) NeverPush() *MockQueue {
+	if _m == nil || _m.push == nil {
+		panic("neomock: MockQueue used without Tester; create via NewMockQueue(t)")
+	}
+	_g := _m.push
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverPush at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockQueuePushExpectation) match(ctx context.Context, msg string) bool {
 	if !neomock.Equal(_e.ctx, ctx) {
 		return false
@@ -512,25 +560,31 @@ func (_g *mockQueuePush) call(ctx context.Context, msg string) error {
 	_g.calls = append(_g.calls, MockQueuePushParams{Ctx: ctx, Msg: msg})
 	var _served *mockQueuePushExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match(ctx, msg) {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match(ctx, msg) {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -539,7 +593,11 @@ func (_g *mockQueuePush) call(ctx context.Context, msg string) error {
 		_g.mu.Unlock()
 		return _res.v1
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockQueue.Push(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{"ctx", "msg"}, []any{ctx, msg}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverPush()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockQueue.Push(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{"ctx", "msg"}, []any{ctx, msg}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockQueue.Push WhenPush registered at %s has no Then", _noThen)
 	case _g.runFn != nil:

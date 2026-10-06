@@ -29,6 +29,17 @@ packages:
           dir: "{{.InterfaceDir}}"
           filename: "queue_mock_test.go"
 
+  # Случай: variadic-аргументы в методах интерфейса
+  # (фиксированные + variadic, только variadic, именованный тип).
+  "github.com/denisdubovitskiy/neomock/example/yaml/variadic":
+    interfaces:
+      Notifier:
+        config:
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "variadic_mock_test.go"
+
   # Случай: source: test — интерфейс объявлен в *_test.go пакета.
   "github.com/denisdubovitskiy/neomock/example/yaml/testsrc":
     interfaces:

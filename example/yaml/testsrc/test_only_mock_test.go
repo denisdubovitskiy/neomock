@@ -69,6 +69,7 @@ type mockTestOnlyPing struct {
 	calls        []MockTestOnlyPingParams
 	runFn        func() error
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockTestOnly) PingCalls() []MockTestOnlyPingParams {
@@ -187,6 +188,24 @@ func (_m *MockTestOnly) RunPing(fn func() error) *MockTestOnly {
 	return _m
 }
 
+func (_m *MockTestOnly) NeverPing() *MockTestOnly {
+	if _m == nil || _m.ping == nil {
+		panic("neomock: MockTestOnly used without Tester; create via NewMockTestOnly(t)")
+	}
+	_g := _m.ping
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverPing at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockTestOnlyPingExpectation) match() bool {
 	return true
 }
@@ -209,25 +228,31 @@ func (_g *mockTestOnlyPing) call() error {
 	_g.calls = append(_g.calls, MockTestOnlyPingParams{})
 	var _served *mockTestOnlyPingExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match() {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match() {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -236,7 +261,11 @@ func (_g *mockTestOnlyPing) call() error {
 		_g.mu.Unlock()
 		return _res.v1
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockTestOnly.Ping(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{}, []any{}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverPing()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockTestOnly.Ping(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{}, []any{}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockTestOnly.Ping WhenPing registered at %s has no Then", _noThen)
 	case _g.runFn != nil:

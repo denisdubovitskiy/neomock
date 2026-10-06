@@ -72,6 +72,7 @@ type mockrefresherRefresh struct {
 	calls        []mockrefresherRefreshParams
 	runFn        func(ctx context.Context) error
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *mockrefresher) RefreshCalls() []mockrefresherRefreshParams {
@@ -191,6 +192,24 @@ func (_m *mockrefresher) RunRefresh(fn func(ctx context.Context) error) *mockref
 	return _m
 }
 
+func (_m *mockrefresher) NeverRefresh() *mockrefresher {
+	if _m == nil || _m.refresh == nil {
+		panic("neomock: mockrefresher used without Tester; create via newMockrefresher(t)")
+	}
+	_g := _m.refresh
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverRefresh at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockrefresherRefreshExpectation) match(ctx context.Context) bool {
 	if !neomock.Equal(_e.ctx, ctx) {
 		return false
@@ -223,25 +242,31 @@ func (_g *mockrefresherRefresh) call(ctx context.Context) error {
 	_g.calls = append(_g.calls, mockrefresherRefreshParams{Ctx: ctx})
 	var _served *mockrefresherRefreshExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match(ctx) {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match(ctx) {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -250,7 +275,11 @@ func (_g *mockrefresherRefresh) call(ctx context.Context) error {
 		_g.mu.Unlock()
 		return _res.v1
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to mockrefresher.Refresh(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{"ctx"}, []any{ctx}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverRefresh()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to mockrefresher.Refresh(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{"ctx"}, []any{ctx}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: mockrefresher.Refresh WhenRefresh registered at %s has no Then", _noThen)
 	case _g.runFn != nil:

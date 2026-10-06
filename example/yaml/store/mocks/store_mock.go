@@ -79,6 +79,7 @@ type mockStoreGet struct {
 	calls        []MockStoreGetParams
 	runFn        func(ctx context.Context, key string) (string, error)
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockStore) GetCalls() []MockStoreGetParams {
@@ -199,6 +200,24 @@ func (_m *MockStore) RunGet(fn func(ctx context.Context, key string) (string, er
 	return _m
 }
 
+func (_m *MockStore) NeverGet() *MockStore {
+	if _m == nil || _m.get == nil {
+		panic("neomock: MockStore used without Tester; create via NewMockStore(t)")
+	}
+	_g := _m.get
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverGet at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockStoreGetExpectation) match(ctx context.Context, key string) bool {
 	if !neomock.Equal(_e.ctx, ctx) {
 		return false
@@ -244,25 +263,31 @@ func (_g *mockStoreGet) call(ctx context.Context, key string) (string, error) {
 	_g.calls = append(_g.calls, MockStoreGetParams{Ctx: ctx, Key: key})
 	var _served *mockStoreGetExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match(ctx, key) {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match(ctx, key) {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -271,7 +296,11 @@ func (_g *mockStoreGet) call(ctx context.Context, key string) (string, error) {
 		_g.mu.Unlock()
 		return _res.v1, _res.v2
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockStore.Get(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{"ctx", "key"}, []any{ctx, key}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverGet()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockStore.Get(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{"ctx", "key"}, []any{ctx, key}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockStore.Get WhenGet registered at %s has no Then", _noThen)
 	case _g.runFn != nil:
@@ -366,6 +395,7 @@ type mockStorePut struct {
 	calls        []MockStorePutParams
 	runFn        func(ctx context.Context, key string, value string) error
 	runOrigin    string
+	neverAll     string
 }
 
 func (_m *MockStore) PutCalls() []MockStorePutParams {
@@ -487,6 +517,24 @@ func (_m *MockStore) RunPut(fn func(ctx context.Context, key string, value strin
 	return _m
 }
 
+func (_m *MockStore) NeverPut() *MockStore {
+	if _m == nil || _m.put == nil {
+		panic("neomock: MockStore used without Tester; create via NewMockStore(t)")
+	}
+	_g := _m.put
+	_origin := neomock.Caller(1)
+	_g.mu.Lock()
+	_prev := _g.neverAll
+	if _prev == "" {
+		_g.neverAll = _origin
+	}
+	_g.mu.Unlock()
+	if _prev != "" {
+		_m.t.Logf("neomock: duplicate NeverPut at %s shadows previous at %s", _origin, _prev)
+	}
+	return _m
+}
+
 func (_e *mockStorePutExpectation) match(ctx context.Context, key string, value string) bool {
 	if !neomock.Equal(_e.ctx, ctx) {
 		return false
@@ -545,25 +593,31 @@ func (_g *mockStorePut) call(ctx context.Context, key string, value string) erro
 	_g.calls = append(_g.calls, MockStorePutParams{Ctx: ctx, Key: key, Value: value})
 	var _served *mockStorePutExpectation
 	var _forbidden string
+	var _neverAll bool
 	var _noThen string
-	for _, _e := range _g.expectations {
-		if !_e.match(ctx, key, value) {
-			continue
-		}
-		if _e.max == 0 {
-			_forbidden = _e.origin
+	if _g.neverAll != "" {
+		_forbidden = _g.neverAll
+		_neverAll = true
+	} else {
+		for _, _e := range _g.expectations {
+			if !_e.match(ctx, key, value) {
+				continue
+			}
+			if _e.max == 0 {
+				_forbidden = _e.origin
+				break
+			}
+			if _e.calls >= _e.max {
+				continue
+			}
+			if !_e.hasResults {
+				_noThen = _e.origin
+				break
+			}
+			_e.calls++
+			_served = _e
 			break
 		}
-		if _e.calls >= _e.max {
-			continue
-		}
-		if !_e.hasResults {
-			_noThen = _e.origin
-			break
-		}
-		_e.calls++
-		_served = _e
-		break
 	}
 	var _msg string
 	switch {
@@ -572,7 +626,11 @@ func (_g *mockStorePut) call(ctx context.Context, key string, value string) erro
 		_g.mu.Unlock()
 		return _res.v1
 	case _forbidden != "":
-		_msg = fmt.Sprintf("neomock: unexpected call to MockStore.Put(%s): explicitly forbidden by Never() at %s", neomock.FormatArgs([]string{"ctx", "key", "value"}, []any{ctx, key, value}), _forbidden)
+		_by := "Never()"
+		if _neverAll {
+			_by = "NeverPut()"
+		}
+		_msg = fmt.Sprintf("neomock: unexpected call to MockStore.Put(%s): explicitly forbidden by %s at %s", neomock.FormatArgs([]string{"ctx", "key", "value"}, []any{ctx, key, value}), _by, _forbidden)
 	case _noThen != "":
 		_msg = fmt.Sprintf("neomock: MockStore.Put WhenPut registered at %s has no Then", _noThen)
 	case _g.runFn != nil:
