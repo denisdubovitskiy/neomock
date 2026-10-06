@@ -1,0 +1,60 @@
+# YAML-конфиг: демонстрация размещения и источников.
+# Запуск: go tool neomock generate (из этого каталога).
+version: 1
+
+packages:
+  # Случай: генерация во вложенную директорию (дефолтный dir = mocks/).
+  "github.com/denisdubovitskiy/neomock/example/yaml/store":
+    all: true
+
+  # Случай: генерация в текущую директорию (inpackage, обычный файл).
+  # Приватный интерфейс → mockrefresher / newMockrefresher.
+  "github.com/denisdubovitskiy/neomock/example/yaml/cache":
+    interfaces:
+      refresher:
+        config:
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "refresher_mock.go"
+
+  # Случай: генерация в текущую директорию в файл _test.go —
+  # мок не попадает в прод-сборку пакета.
+  "github.com/denisdubovitskiy/neomock/example/yaml/queue":
+    interfaces:
+      Queue:
+        config:
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "queue_mock_test.go"
+
+  # Случай: source: test — интерфейс объявлен в *_test.go пакета.
+  "github.com/denisdubovitskiy/neomock/example/yaml/testsrc":
+    interfaces:
+      TestOnly:
+        config:
+          source: test
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "test_only_mock_test.go"
+
+  # Случай: source: all — видны интерфейсы и из исходника (FromGo),
+  # и из *_test.go (FromTest).
+  "github.com/denisdubovitskiy/neomock/example/yaml/mixed":
+    interfaces:
+      FromGo:
+        config:
+          source: all
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "from_go_mock_test.go"
+      FromTest:
+        config:
+          source: all
+          inpackage: true
+          pkgname: ""
+          dir: "{{.InterfaceDir}}"
+          filename: "from_test_mock_test.go"

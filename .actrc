@@ -1,0 +1,6 @@
+# Локальный запуск GitHub Actions через act (https://github.com/nektos/act).
+# Образ с предзакачанными toolchain — setup-go ставит Go быстрее.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+# Не монтировать docker.sock в контейнер (Lima: путь на macOS недоступен
+# демону внутри ВМ; docker в джобах не нужен).
+--container-daemon-socket -

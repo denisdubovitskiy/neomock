@@ -1,0 +1,17 @@
+# TOML-конфиг: тот же набор случаев, что и в YAML, синтаксисом TOML.
+# Запуск: go tool neomock generate (из этого каталога).
+version = 1
+
+# Случай: генерация во вложенную директорию (дефолтный dir = mocks/).
+[packages."github.com/denisdubovitskiy/neomock/example/toml/store"]
+all = true
+
+# Случай: генерация в текущую директорию (inpackage).
+[packages."github.com/denisdubovitskiy/neomock/example/toml/ping"]
+interfaces = { Pinger = {} }
+
+[packages."github.com/denisdubovitskiy/neomock/example/toml/ping".config]
+inpackage = true
+pkgname = ""
+dir = "{{.InterfaceDir}}"
+filename = "ping_mock.go"

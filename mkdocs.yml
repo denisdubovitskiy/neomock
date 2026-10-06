@@ -1,0 +1,63 @@
+site_name: neomock
+site_description: Генератор моков для Go с zero-dependency рантаймом
+repo_name: denisdubovitskiy/neomock
+repo_url: https://github.com/denisdubovitskiy/neomock
+edit_uri: edit/main/docs/
+docs_dir: docs/
+
+exclude_docs: |
+  AGENTS.md
+  CLAUDE.md
+
+theme:
+  name: material
+  language: ru
+  features:
+    - navigation.tabs
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search:
+      lang: [en, ru]
+
+markdown_extensions:
+  - meta
+  - admonition
+  - attr_list
+  - footnotes
+  - toc:
+      permalink: '#'
+  - pymdownx.details
+  - pymdownx.superfences:
+      preserve_tabs: true
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+extra_javascript:
+  - assets/js/vendor/mermaid@11.min.js
+
+validation:
+  omitted_files: warn
+  not_found: warn
+  anchors: warn
+  unrecognized_links: warn
+
+nav:
+  - Обзор: index.md
+  - Использование: usage.md
+  - Конфигурация: configuration.md
+  - CLI и генерация: cli.md
+  - Примеры: examples.md
+  - Архитектура: architecture.md
+  - Разработка: development.md

@@ -1,0 +1,15 @@
+# Конфигурация golangci-lint v2 (запуск: make lint — в Docker).
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  exclusions:
+    generated: lax # файлы с маркером «Code generated» не линтуем
+  settings:
+    errcheck:
+      # _ = err допустим осознанно — не флагать
+      check-blank: false

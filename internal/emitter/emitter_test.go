@@ -1,0 +1,378 @@
+package emitter
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/denisdubovitskiy/neomock/internal/format"
+	"github.com/denisdubovitskiy/neomock/internal/loader"
+	"github.com/denisdubovitskiy/neomock/internal/model"
+)
+
+const fixturePkg = "github.com/denisdubovitskiy/neomock/internal/loader/testdata/pkg"
+
+// fixturePkgs — фикстурные пакеты по префиксу квалифицированного имени.
+var fixturePkgs = map[string]string{
+	"pkg":      "github.com/denisdubovitskiy/neomock/internal/loader/testdata/pkg",
+	"shapes":   "github.com/denisdubovitskiy/neomock/internal/loader/testdata/shapes",
+	"embedded": "github.com/denisdubovitskiy/neomock/internal/loader/testdata/embedded",
+}
+
+// loadFixture загружает интерфейс из фикстурного пакета; имя задаётся как
+// "pkg.Interface", "shapes.Interface", "embedded.Interface" или просто
+// "Interface" (фикстурный pkg).
+func loadFixture(t *testing.T, qualified string) *model.Interface {
+	t.Helper()
+	pkgPath, name := fixturePkgs["pkg"], qualified
+	if i := strings.IndexByte(qualified, '.'); i >= 0 {
+		p, ok := fixturePkgs[qualified[:i]]
+		require.True(t, ok, "unknown fixture package %q", qualified[:i])
+		pkgPath = p
+		name = qualified[i+1:]
+	}
+	iface, err := loader.Load(
+		loader.Config{PackagePath: pkgPath, InterfaceName: name},
+	)
+	require.NoError(t, err)
+	return iface
+}
+
+// goldenDir — каталог с checked-in сгенерированными моками (dogfooding):
+// они компилируются как часть модуля и тестируются behavior-тестами в
+// genmocks (отдельный шаблонный модуль для проверки компиляции не нужен).
+const goldenDir = "genmocks"
+
+// TestRender_Golden сверяет рендер фикстур с checked-in файлами в genmocks.
+// Обновление: NEOMOCK_UPDATE_GOLDEN=1 go test ./internal/emitter
+func TestRender_Golden(t *testing.T) {
+	t.Parallel()
+
+	// arrange: фикстуры всех сценариев (план, этап 8)
+	server := loadFixture(t, "Server")
+	store := loadFixture(t, "Store")
+	rich := loadFixture(t, "shapes.Rich")
+	readerWriter := loadFixture(t, "embedded.ReaderWriter")
+	diamond := loadFixture(t, "embedded.Diamond")
+	greet := loadFixture(t, "embedded.Greet")
+	intStore := loadFixture(t, "embedded.IntStore")
+	generic := loadFixture(t, "pkg.Generic")
+
+	files := map[string]struct {
+		iface *model.Interface
+		opts  Options
+	}{
+		"server_mock.go":        {iface: server, opts: Options{Package: "genmocks"}},
+		"store_mock.go":         {iface: store, opts: Options{Package: "genmocks"}},
+		"shapes_mock.go":        {iface: rich, opts: Options{Package: "genmocks"}},
+		"reader_writer_mock.go": {iface: readerWriter, opts: Options{Package: "genmocks"}},
+		"diamond_mock.go":       {iface: diamond, opts: Options{Package: "genmocks"}},
+		"greet_mock.go":         {iface: greet, opts: Options{Package: "genmocks"}},
+		"int_store_mock.go":     {iface: intStore, opts: Options{Package: "genmocks"}},
+		"generic_mock.go":       {iface: generic, opts: Options{Package: "genmocks"}},
+	}
+
+	update := os.Getenv("NEOMOCK_UPDATE_GOLDEN") == "1"
+	for name, tc := range files {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// act
+			got, err := Render(tc.iface, tc.opts)
+			require.NoError(t, err)
+
+			// форматирование — тот же шаг, что и в реальном конвейере записи
+			formatted, err := format.Source([]byte(got))
+			require.NoError(t, err)
+
+			path := filepath.Join(goldenDir, name)
+			if update {
+				require.NoError(t, os.WriteFile(path, formatted, 0o644))
+				return
+			}
+
+			// assert
+			want, err := os.ReadFile(path)
+			require.NoError(
+				t,
+				err,
+				"golden file missing; run with NEOMOCK_UPDATE_GOLDEN=1",
+			)
+			assert.Equal(
+				t,
+				string(want),
+				string(formatted),
+				"сгенерированный код разошёлся с golden-файлом; запустите с NEOMOCK_UPDATE_GOLDEN=1",
+			)
+		})
+	}
+}
+
+// TestRender_InPackage проверяет рендер в пакет источника: типы без
+// квалификатора, импорта источника нет, assertion без префикса (§3.3).
+func TestRender_InPackage(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Server")
+
+	// act
+	got, err := Render(iface, Options{Package: "pkg", SelfPath: fixturePkg})
+
+	// assert
+	require.NoError(t, err)
+	assert.Contains(t, got, "package pkg")
+	assert.Contains(
+		t,
+		got,
+		"var _ Server = (*MockServer)(nil)",
+		"assertion без квалификатора",
+	)
+	assert.NotContains(t, got, fixturePkg, "свой пакет не импортируется")
+	// типы параметров без квалификатора — неквалифицирован только собственный пакет
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockServer) Get(ctx context.Context, id string) (string, error) {",
+	)
+}
+
+// TestRender_Structure проверяет состав сгенерированного кода (Приложение А).
+func TestRender_Structure(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Server")
+
+	// act
+	got, err := Render(iface, Options{Package: "mocks"})
+
+	// assert
+	require.NoError(t, err)
+	assert.Contains(t, got, "// Code generated by neomock DO NOT EDIT.")
+	assert.Contains(t, got, "package mocks")
+	// структура и конструктор
+	assert.Contains(t, got, "type MockServer struct {")
+	assert.Contains(
+		t,
+		got,
+		"func NewMockServer(t neomock.Tester, opts ...neomock.Option) *MockServer {",
+	)
+	assert.Contains(
+		t,
+		got,
+		`panic("neomock: NewMockServer requires non-nil Tester")`,
+	)
+	assert.Contains(t, got, "t.Cleanup(func() { neomock.Verify(_m) })")
+	// прямой метод делегирует холдеру
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockServer) Get(ctx context.Context, id string) (string, error) {",
+	)
+	assert.Contains(t, got, "return _m.get.call(ctx, id)")
+	// DSL: When/Times/Once/Optional/Never/Then/Run
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockServer) WhenGet(ctx context.Context, id string) *MockServerGetCall {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockServerGetCall) Times(n int) *MockServerGetCall {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockServerGetCall) Once() *MockServerGetCall {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockServerGetCall) Optional() *MockServerGetCall {",
+	)
+	assert.Contains(t, got, "func (_c *MockServerGetCall) Never() *MockServer {")
+	assert.Contains(t, got, "func (_m *MockServer) NeverGet() *MockServer {")
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockServerGetCall) Then(v1 string, v2 error) *MockServerGetCall {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockServer) RunGet(fn func(ctx context.Context, id string) (string, error)) *MockServer {",
+	)
+	// история
+	assert.Contains(t, got, "type MockServerGetParams struct {")
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockServer) GetCalls() []MockServerGetParams {",
+	)
+	assert.Contains(t, got, "func (_m *MockServer) GetCallsCount() int {")
+	// verify
+	assert.Contains(t, got, "func (_m *MockServer) NeomockVerify() {")
+	// assertion с квалификацией пакета источника (DESIGN §3.4)
+	assert.Contains(t, got, "var _ pkg.Server = (*MockServer)(nil)")
+	// импорты: рантайм + stdlib, алиасный стиль Приложения А
+	assert.Contains(t, got, `neomock "github.com/denisdubovitskiy/neomock"`)
+	assert.Contains(t, got, `sync "sync"`)
+	assert.Contains(t, got, `fmt "fmt"`)
+	assert.Contains(t, got, `context "context"`)
+	// кардинальность по умолчанию 1/+Inf
+	assert.Contains(t, got, "min: 1,")
+	assert.Contains(t, got, "max: ^uint64(0),")
+}
+
+// TestRender_StoreShapes проверяет особые формы на фикстуре Store:
+// variadic, []byte, void-метод, метод без контекста (§3.2.1).
+func TestRender_StoreShapes(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Store")
+
+	// act
+	got, err := Render(iface, Options{Package: "mocks"})
+
+	// assert
+	require.NoError(t, err)
+	// variadic-параметр пробрасывается как ... (без unroll)
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockStore) WhenPut(ctx context.Context, key string, val []byte, opts ...string) *MockStorePutCall {",
+	)
+	assert.Contains(t, got, "return _m.put.call(ctx, key, val, opts...)")
+	// match по variadic — длина + поэлементно
+	assert.Contains(t, got, "if len(_e.opts) != len(opts) {")
+	// void-метод: When завершён, Then — no-op
+	assert.Contains(t, got, "_exp.hasResults = true")
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockStoreNotifyCall) Then() *MockStoreNotifyCall {",
+	)
+	// []byte в истории клонируется slices.Clone (DESIGN 3.2.5 п.4)
+	assert.Contains(t, got, "Val: slices.Clone(val)")
+	assert.Contains(t, got, `slices "slices"`)
+	// метод без контекста и без аргументов-объектов
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockStore) WhenCount(prefix string) *MockStoreCountCall {",
+	)
+	// [[[]byte]] сравнение через Equal — bytes.Equal-семантика в рантайме
+	assert.Contains(t, got, "neomock.Equal(_e.val, val)")
+}
+
+// TestRender_NoHistory проверяет, что DisableHistory убирает запись истории
+// и методы Calls (DESIGN 3.2.6, 3.2.5 п.5).
+func TestRender_NoHistory(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Server")
+
+	// act
+	got, err := Render(iface, Options{Package: "mocks", DisableHistory: true})
+
+	// assert
+	require.NoError(t, err)
+	assert.NotContains(t, got, "GetCalls")
+	assert.NotContains(t, got, "MockServerGetParams")
+	assert.Contains(t, got, "func (_m *MockServer) WhenGet")
+}
+
+// TestRender_StructNameOverride проверяет произвольное имя структуры и
+// //go:generate-шапку (Приложение А).
+func TestRender_StructNameOverride(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Server")
+
+	// act
+	got, err := Render(iface, Options{
+		Package:    "mocks",
+		StructName: "MockServerStrict",
+		OutPath:    "./mocks/server_mock.go",
+	})
+
+	// assert
+	require.NoError(t, err)
+	assert.Contains(t, got, "type MockServerStrict struct {")
+	assert.Contains(t, got, "func NewMockServerStrict(")
+	assert.Contains(
+		t,
+		got,
+		"//go:generate go tool neomock --interface Server --out ./mocks/server_mock.go --pkgname mocks --structname MockServerStrict",
+	)
+}
+
+// TestRender_Generic проверяет параметризацию всех сущностей generic-мока
+// (§3.2.1: MockRepo[T], билдеры с [T]).
+func TestRender_Generic(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Generic")
+
+	// act
+	got, err := Render(iface, Options{Package: "mocks"})
+
+	// assert
+	require.NoError(t, err)
+	assert.Contains(t, got, "type MockGeneric[T any] struct {")
+	assert.Contains(
+		t,
+		got,
+		"func NewMockGeneric[T any](t neomock.Tester, opts ...neomock.Option) *MockGeneric[T] {",
+	)
+	assert.Contains(t, got, "get *mockGenericGet[T]")
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockGeneric[T]) WhenGet(ctx context.Context, id T) *MockGenericGetCall[T] {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_c *MockGenericGetCall[T]) Then(v1 T, v2 error) *MockGenericGetCall[T] {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockGeneric[T]) RunGet(fn func(ctx context.Context, id T) (T, error)) *MockGeneric[T] {",
+	)
+	assert.Contains(
+		t,
+		got,
+		"func (_m *MockGeneric[T]) GetCalls() []MockGenericGetParams[T] {",
+	)
+	// assertion для generic-мока не эмитится (нужна конкретная инстанциация)
+	assert.NotContains(t, got, "var _ ")
+}
+
+// TestRender_NoGenerateLine — без GenerateLine/OutPath шапка //go:generate
+// не эмитится (generate-line: false).
+func TestRender_NoGenerateLine(t *testing.T) {
+	t.Parallel()
+
+	// arrange
+	iface := loadFixture(t, "Server")
+
+	// act
+	got, err := Render(iface, Options{Package: "mocks", StructName: "MockServer"})
+
+	// assert
+	require.NoError(t, err)
+	assert.NotContains(t, got, "//go:generate")
+	assert.Contains(t, got, "// Code generated by neomock DO NOT EDIT.")
+}
